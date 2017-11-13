@@ -2,6 +2,7 @@
 
 namespace Mariuzzo\LaravelJsLocalization\Generators;
 
+use Cartalyst\Dependencies\DependencySorter;
 use Illuminate\Filesystem\Filesystem as File;
 use JShrink\Minifier;
 
@@ -33,6 +34,8 @@ class LangJsGenerator
      */
     protected $messagesIncluded = [];
 
+    protected $modulesPath;
+
     /**
      * Construct a new LangJsGenerator instance.
      *
@@ -54,15 +57,14 @@ class LangJsGenerator
      *
      * @return int
      */
+
     public function generate($target, $options)
     {
         if ($options['source']) {
             $this->sourcePath = $options['source'];
         }
-
         $messages = $this->getMessages();
         $this->prepareTarget($target);
-
         if ($options['no-lib']) {
             $template = $this->file->get(__DIR__.'/Templates/messages.js');
         } else if ($options['json']) {
@@ -72,13 +74,10 @@ class LangJsGenerator
             $langjs = $this->file->get(__DIR__.'/../../../../lib/lang.min.js');
             $template = str_replace('\'{ langjs }\';', $langjs, $template);
         }
-
         $template = str_replace('\'{ messages }\'', json_encode($messages), $template);
-
         if ($options['compress']) {
             $template = Minifier::minify($template);
         }
-
         return $this->file->put($target, $template);
     }
 
@@ -141,6 +140,7 @@ class LangJsGenerator
         return $messages;
     }
 
+
     /**
      * Prepare the target directory.
      *
@@ -188,5 +188,131 @@ class LangJsGenerator
         unset($keyParts[0]);
 
         return $keyParts[2] .'.'. $keyParts[1] . '::' . $keyParts[3];
+    }
+
+
+
+    //GetCodes
+    protected function getExtensions()
+    {
+        $sorter = new DependencySorter();
+
+        foreach (app('extensions')->allInstalled() as $extension) {
+            $sorter->add($extension->getSlug(), $extension->getDependencies());
+        }
+
+        $extensions = array();
+
+        foreach ($sorter->sort() as $slug) {
+            if(strpos($slug, 'bct/') !== false) {
+                $extensions[$slug] = $slug;
+            }
+
+        }
+
+        return $extensions;
+    }
+
+    protected function getDependentsFromConfig()
+    {
+        return collect(config('bct.extensions.js.trans.dependents'));
+    }
+
+    public function generateFromExtension($target, $options) {
+        if ($options['modules']) {
+            $this->modulesPath = $options['modules'];
+        }
+
+        if ($options['source']) {
+            $this->sourcePath = $options['source'];
+        }
+
+        $extensions = $this->getExtensions();
+        $extensionDependents = $this->getDependentsFromConfig();
+
+        $messages = [];
+        $dependents = [];
+        if ($extensions) {
+            foreach($extensions as $extension) {
+
+                $messages[$extension] = $this->getMessagesFromExtension($this->modulesPath.DIRECTORY_SEPARATOR.$extension.DIRECTORY_SEPARATOR.$this->sourcePath);
+
+                if($extensionDependents) {
+                    $dependents[$extension] = $this->getCurrentDependents($extensions, data_get($extensionDependents, $extension));
+                }
+            }
+        }
+
+        $this->prepareTarget($target);
+
+        if ($options['no-lib']) {
+            $template = $this->file->get(__DIR__.'/Templates/messages.js');
+        } else if ($options['json']) {
+            $template = $this->file->get(__DIR__.'/Templates/messages.json');
+        } else {
+            $template = $this->file->get(__DIR__.'/Templates/langjs_with_messages.js');
+            $langjs = $this->file->get(__DIR__.'/../../../../lib/lang.min.js');
+            $template = str_replace('\'{ langjs }\';', $langjs, $template);
+        }
+
+        $template = str_replace('\'{ messages }\'', json_encode($messages), $template);
+        if($dependents) {
+            $template = str_replace('\'{ dependents }\'', json_encode($dependents), $template);
+        }
+
+        if ($options['compress']) {
+            $template = Minifier::minify($template);
+        }
+
+        return $this->file->put($target, $template);
+
+
+    }
+
+    protected function getMessagesFromExtension($path)
+    {
+        $messages = [];
+
+        if (!$this->file->exists($path)) {
+            throw new \Exception("${path} doesn't exists!");
+        }
+
+        foreach ($this->file->allFiles($path) as $file) {
+            $pathName = $file->getRelativePathName();
+
+            if ($this->file->extension($pathName) !== 'php') {
+                continue;
+            }
+
+            if ($this->isMessagesExcluded($pathName)) {
+                continue;
+            }
+
+            $key = substr($pathName, 0, -4);
+            $key = str_replace('\\', '.', $key);
+            $key = str_replace('/', '.', $key);
+
+            if (starts_with($key, 'vendor')) {
+                $key = $this->getVendorKey($key);
+            }
+
+            $messages[$key] = include $path . DIRECTORY_SEPARATOR . $pathName;
+        }
+
+        $this->sortMessages($messages);
+
+        return $messages;
+    }
+
+    public function getCurrentDependents($extensions, $dependents) {
+        $currentDependents = null;
+        if($dependents) {
+            foreach($extensions as $extension) {
+                if(array_search($extension, $dependents) !== false) {
+                    $currentDependents = $extension;
+                }
+            }
+        }
+        return $currentDependents;
     }
 }

@@ -197,7 +197,7 @@ class LangJsGenerator
     {
         $sorter = new DependencySorter();
 
-        foreach (app('extensions')->allInstalled() as $extension) {
+        foreach (app('extensions')->getBag()->allInstalled() as $extension) {
             $sorter->add($extension->getSlug(), $extension->getDependencies());
         }
 

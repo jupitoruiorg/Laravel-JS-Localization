@@ -127,7 +127,7 @@ class LangJsGenerator
             $key = substr($pathName, 0, -4);
             $key = str_replace('\\', '.', $key);
             $key = str_replace('/', '.', $key);
-            
+
             if (starts_with($key, 'vendor')) {
                 $key = $this->getVendorKey($key);
             }
@@ -181,7 +181,7 @@ class LangJsGenerator
 
         return true;
     }
-    
+
     private function getVendorKey($key)
     {
         $keyParts = explode('.', $key, 4);
@@ -197,7 +197,7 @@ class LangJsGenerator
     {
         $sorter = new DependencySorter();
 
-        foreach (app('extensions')->allInstalled() as $extension) {
+        foreach (app('extensions')->getBag()->allInstalled() as $extension) {
             $sorter->add($extension->getSlug(), $extension->getDependencies());
         }
 
@@ -255,18 +255,21 @@ class LangJsGenerator
             $template = str_replace('\'{ langjs }\';', $langjs, $template);
         }
 
-        $template = str_replace('\'{ messages }\'', json_encode($messages), $template);
-        if($dependents) {
-            $template = str_replace('\'{ dependents }\'', json_encode($dependents), $template);
+        if ($options['dependents'] === true && $dependents && $options['json']) {
+            $template = str_replace('\'{ messages }\'', json_encode($dependents), $template);
+        } else {
+            $template = str_replace('\'{ messages }\'', json_encode($messages), $template);
+            if($dependents) {
+                $template = str_replace('\'{ dependents }\'', json_encode($dependents), $template);
+            }
         }
+
 
         if ($options['compress']) {
             $template = Minifier::minify($template);
         }
 
         return $this->file->put($target, $template);
-
-
     }
 
     protected function getMessagesFromExtension($path)
